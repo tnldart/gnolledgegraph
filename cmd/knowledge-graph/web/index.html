@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Go SQLite WASM Knowledge Graph</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
+        .container { background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1, h2 { color: #333; }
+        .controls, .graph-area, .results-area { margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 4px; }
+        button { padding: 10px 15px; margin: 5px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #ccc; }
+        .button-broken { background-color: #dc3545; } /* Red for broken buttons */
+        .button-broken:hover { background-color: #c82333; }
+        input[type="text"], textarea, select { width: calc(100% - 22px); padding: 10px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px; }
+        textarea { min-height: 60px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        #statusDiv { padding: 10px; border-radius: 4px; margin-top:10px; font-weight: bold;}
+        .status-initializing { background-color: #e6f7ff; border: 1px solid #91d5ff; color: #0050b3; }
+        .status-ready { background-color: #f6ffed; border: 1px solid #b7eb8f; color: #389e0d; }
+        .status-error { background-color: #fff1f0; border: 1px solid #ffa39e; color: #cf1322; }
+        #resultsDiv { background-color: #e9ecef; padding: 10px; border-radius: 4px; white-space: pre-wrap; word-wrap: break-word; max-height: 300px; overflow-y: auto; }
+        .hidden { display: none; }
+        .flex-container { display: flex; gap: 10px; flex-wrap: wrap;}
+        .flex-item { flex: 1; min-width: 200px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Go SQLite WASM Knowledge Graph</h1>
+        <div id="statusDiv">Loading WASM...</div>
+
+        <div class="controls">
+            <h2>Database Controls & Sync</h2>
+            <p>Current DB Key for IndexedDB: <strong id="currentDbKeyNameDisplay">knowledge_graph.db</strong></p>
+            <button id="initDbBtn">Initialize/Reload DB from IndexedDB</button>
+            <hr>
+            <h4>Local File Operations:</h4>
+            <input type="file" id="importFileInput" class="hidden">
+            <button id="importBtn">Import DB from Local File (to WASM & IndexedDB)</button>
+            <button id="exportBtn">Export DB to Local File (from WASM)</button>
+            <hr>
+            <h4>Server Sync Operations:</h4>
+            <button id="syncFromServerBtn">Sync DB from Server (Fetch & Import to WASM & IndexedDB)</button>
+            <button id="syncToServerBtn">Sync DB to Server (Export from WASM & Upload)</button>
+        </div>
+
+        <div class="controls">
+            <h2>Entity Management</h2>
+            <div class="flex-container">
+                <div class="flex-item">
+                    <label for="entityNameInput">Entity Name:</label>
+                    <input type="text" id="entityNameInput" placeholder="e.g., Apple Inc.">
+                </div>
+                <div class="flex-item">
+                    <label for="entityTypeInput">Entity Type:</label>
+                    <input type="text" id="entityTypeInput" placeholder="e.g., Corporation">
+                </div>
+            </div>
+            <label for="entityObservationsInput">Initial Observations (one per line):</label>
+            <textarea id="entityObservationsInput" placeholder="e.g., Founded in 1976\nKnown for iPhones"></textarea>
+            <button id="createEntityBtn">Create Entity</button>
+        </div>
+
+        <div class="controls">
+            <h2>Relation Management</h2>
+            <div class="flex-container">
+                <div class="flex-item">
+                    <label for="fromEntityInput">From Entity:</label>
+                    <input type="text" id="fromEntityInput" placeholder="Source entity name">
+                </div>
+                <div class="flex-item">
+                    <label for="toEntityInput">To Entity:</label>
+                    <input type="text" id="toEntityInput" placeholder="Target entity name">
+                </div>
+            </div>
+            <label for="relationTypeInput">Relation Type:</label>
+            <input type="text" id="relationTypeInput" placeholder="e.g., CEO_OF, LOCATED_IN">
+            <button id="createRelationBtn">Create Relation</button>
+        </div>
+
+        <div class="controls">
+            <h2>Observation Management</h2>
+            <div class="flex-container">
+                <div class="flex-item">
+                    <label for="obsEntityNameInput">Entity Name for Observation:</label>
+                    <input type="text" id="obsEntityNameInput" placeholder="Entity name">
+                </div>
+            </div>
+            <label for="obsContentInput">Observation Content:</label>
+            <textarea id="obsContentInput" placeholder="e.g., Announced new product"></textarea>
+            <button id="addObservationBtn">Add Observation</button>
+        </div>
+
+        <div class="controls">
+            <h2>Data Retrieval & Actions</h2>
+            <button id="getGraphDataBtn">Get Full Graph Data</button>
+            <div class="flex-container">
+                <div class="flex-item">
+                    <label for="searchInput">Search Query:</label>
+                    <input type="text" id="searchInput" placeholder="Search term">
+                    <button id="searchBtn">Search Nodes</button>
+                </div>
+                 <div class="flex-item">
+                    <label for="openNodesInput">Node Names (comma-separated):</label>
+                    <input type="text" id="openNodesInput" placeholder="node1,node2">
+                    <button id="openNodesBtn">Open Specific Nodes</button>
+                </div>
+            </div>
+             <div class="flex-container" style="margin-top: 10px;">
+                <div class="flex-item">
+                    <label for="deleteEntitiesInput">Entity Names to Delete (comma-separated):</label>
+                    <input type="text" id="deleteEntitiesInput" placeholder="node1,node2">
+                    <button id="deleteEntitiesBtn">Delete Entities</button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="results-area">
+            <h2>Results / Log</h2>
+            <div id="resultsDiv"></div>
+        </div>
+    </div>
+
+    <script src="wasm_exec.js"></script>
+    <script>
+        const go = new Go();
+        let goWasmReady = false;
+        let currentDbKeyName = 'knowledge_graph.db'; // Default
+
+        // UI Elements
+        const statusDiv = document.getElementById('statusDiv');
+        const resultsDiv = document.getElementById('resultsDiv');
+        const initDbBtn = document.getElementById('initDbBtn');
+        const importFileInput = document.getElementById('importFileInput');
+        const importBtn = document.getElementById('importBtn');
+        const exportBtn = document.getElementById('exportBtn');
+        const currentDbKeyNameDisplay = document.getElementById('currentDbKeyNameDisplay');
+
+        const entityNameInput = document.getElementById('entityNameInput');
+        const entityTypeInput = document.getElementById('entityTypeInput');
+        const entityObservationsInput = document.getElementById('entityObservationsInput');
+        const createEntityBtn = document.getElementById('createEntityBtn');
+
+        const fromEntityInput = document.getElementById('fromEntityInput');
+        const toEntityInput = document.getElementById('toEntityInput');
+        const relationTypeInput = document.getElementById('relationTypeInput');
+        const createRelationBtn = document.getElementById('createRelationBtn');
+
+        const obsEntityNameInput = document.getElementById('obsEntityNameInput');
+        const obsContentInput = document.getElementById('obsContentInput');
+        const addObservationBtn = document.getElementById('addObservationBtn');
+
+        const getGraphDataBtn = document.getElementById('getGraphDataBtn');
+        const searchInput = document.getElementById('searchInput');
+        const searchBtn = document.getElementById('searchBtn');
+        const openNodesInput = document.getElementById('openNodesInput');
+        const openNodesBtn = document.getElementById('openNodesBtn');
+        const deleteEntitiesInput = document.getElementById('deleteEntitiesInput');
+        const deleteEntitiesBtn = document.getElementById('deleteEntitiesBtn');
+        
+        const syncToServerBtn = document.getElementById('syncToServerBtn');
+        const syncFromServerBtn = document.getElementById('syncFromServerBtn');
+        // const syncFromBackendDataBtn = document.getElementById('syncFromBackendDataBtn'); // Button removed
+
+
+        function updateStatus(message, type = 'status-initializing') {
+            statusDiv.textContent = message;
+            statusDiv.className = type;
+            console.log(`Status: ${message} (type: ${type})`);
+        }
+
+        function logToResults(message, type = 'info', data = null) { 
+            const entry = document.createElement('div');
+            entry.style.color = type === 'error' ? 'red' : (type === 'success' ? 'green' : 'black');
+            entry.textContent = `[${type.toUpperCase()}] ${message}`;
+            if (data) {
+                const dataPre = document.createElement('pre');
+                dataPre.style.backgroundColor = '#f0f0f0';
+                dataPre.style.padding = '5px';
+                dataPre.style.marginTop = '5px';
+                try {
+                    dataPre.textContent = JSON.stringify(data, null, 2);
+                } catch (e) {
+                    dataPre.textContent = "[Unserializable data]";
+                }
+                entry.appendChild(dataPre);
+            }
+            resultsDiv.appendChild(entry);
+            resultsDiv.scrollTop = resultsDiv.scrollHeight;
+            console.log(`[${type.toUpperCase()}] ${message}`, data || '');
+        }
+        
+        function bytesToHexString(bytes) {
+            return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
+        function hexStringToBytes(hexString) {
+            if (!hexString || hexString.length % 2 !== 0) {
+                console.warn("Invalid hex string for byte conversion:", hexString);
+                return new Uint8Array(0);
+            }
+            const bytes = new Uint8Array(hexString.length / 2);
+            for (let i = 0; i < hexString.length; i += 2) {
+                bytes[i / 2] = parseInt(hexString.substring(i, i + 2), 16);
+            }
+            return bytes;
+        }
+
+        // --- IndexedDB Functions ---
+        const IDB_NAME = 'GoSqliteWasmKnowledgeGraphDB';
+        const IDB_STORE_NAME = 'sqliteDatabaseImages';
+        let idbInstance;
+
+        async function openUserIndexedDB() {
+            return new Promise((resolve, reject) => {
+                if (idbInstance) { resolve(idbInstance); return; }
+                const request = self.indexedDB.open(IDB_NAME, 1);
+                request.onerror = (event) => reject("Error opening IndexedDB: " + request.error?.message);
+                request.onsuccess = (event) => {
+                    idbInstance = request.result;
+                    console.log("JS: IndexedDB opened.");
+                    resolve(idbInstance);
+                };
+                request.onupgradeneeded = (event) => {
+                    const dbHandle = event.target.result;
+                    if (!dbHandle.objectStoreNames.contains(IDB_STORE_NAME)) {
+                        dbHandle.createObjectStore(IDB_STORE_NAME);
+                    }
+                };
+            });
+        }
+
+        async function saveDbToIndexedDB(dbKey, dbByteArray) { 
+            if (!dbByteArray || dbByteArray.length === 0) {
+                logToResults(`Attempted to save empty DB image for key '${dbKey}'. Skipping.`, 'info');
+                return;
+            }
+            const dbHandle = await openUserIndexedDB();
+            return new Promise((resolve, reject) => {
+                const transaction = dbHandle.transaction([IDB_STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(IDB_STORE_NAME);
+                const request = store.put(dbByteArray, dbKey); 
+                request.onerror = (event) => reject("Error saving DB to IndexedDB: " + request.error?.message);
+                request.onsuccess = () => resolve();
+                transaction.oncomplete = () => logToResults(`DB '${dbKey}' saved to IndexedDB (${dbByteArray.length} bytes).`, 'success');
+            });
+        }
+
+        async function loadDbFromIndexedDB(dbKey) { 
+            const dbHandle = await openUserIndexedDB();
+            return new Promise((resolve, reject) => {
+                if (!dbHandle.objectStoreNames.contains(IDB_STORE_NAME)) {
+                    resolve(undefined); return;
+                }
+                const transaction = dbHandle.transaction([IDB_STORE_NAME], 'readonly');
+                const store = transaction.objectStore(IDB_STORE_NAME);
+                const request = store.get(dbKey);
+                request.onerror = (event) => reject("Error loading DB from IndexedDB: " + request.error?.message);
+                request.onsuccess = (event) => resolve(request.result); 
+            });
+        }
+        
+        async function deleteDbFromIndexedDB(dbKey) {
+            const dbHandle = await openUserIndexedDB();
+            return new Promise((resolve, reject) => {
+                if (!dbHandle.objectStoreNames.contains(IDB_STORE_NAME)) {
+                    resolve(); return; 
+                }
+                const transaction = dbHandle.transaction([IDB_STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(IDB_STORE_NAME);
+                const request = store.delete(dbKey);
+                request.onerror = (event) => reject("Error deleting DB from IndexedDB: " + request.error?.message);
+                request.onsuccess = () => resolve();
+                transaction.oncomplete = () => logToResults(`DB '${dbKey}' deleted from IndexedDB.`, 'info');
+            });
+        }
+
+
+        // --- WASM Initialization ---
+        async function initWasm() {
+            updateStatus("Initializing Go SQLite WASM...", "status-initializing");
+            try {
+                const result = await WebAssembly.instantiateStreaming(fetch("main.wasm"), go.importObject);
+                go.run(result.instance); 
+                goWasmReady = true;
+                updateStatus("Go WASM Loaded. Initializing DB...", "status-initializing");
+                await initializeDatabase(); 
+            } catch (err) {
+                console.error("Go SQLite WASM Loading Error:", err);
+                logToResults(`Go SQLite WASM Loading Error: ${err.message || err}`, 'error');
+                updateStatus("Error loading Go SQLite WASM", "status-error");
+                disableAllButtons();
+            }
+        }
+        
+        async function initializeDatabase() {
+            if (!goWasmReady) { logToResults("WASM not ready for DB init.", "error"); return; }
+            try {
+                logToResults(`Attempting to load DB '${currentDbKeyName}' from IndexedDB...`, 'info');
+                const dbBytesArray = await loadDbFromIndexedDB(currentDbKeyName); 
+                let dbBytesHexString = "";
+                if (dbBytesArray && dbBytesArray.length > 0) {
+                    dbBytesHexString = bytesToHexString(dbBytesArray);
+                    logToResults(`Loaded ${dbBytesArray.length} bytes from IndexedDB for '${currentDbKeyName}'. Converting to hex.`, 'info');
+                } else {
+                    logToResults(`No existing data in IndexedDB for '${currentDbKeyName}' or data is empty. Initializing new DB.`, 'info');
+                }
+                
+                const resultStr = goInitDB(currentDbKeyName, dbBytesHexString).toString();
+                const initResult = JSON.parse(resultStr);
+                
+                if (initResult && initResult.error) {
+                    throw new Error(initResult.error);
+                }
+                if (initResult && initResult.success && initResult.data && initResult.data.dbKeyName) {
+                    currentDbKeyName = initResult.data.dbKeyName;
+                    currentDbKeyNameDisplay.textContent = currentDbKeyName;
+                }
+                logToResults(`Go SQLite DB '${currentDbKeyName}' initialized.`, 'success', initResult);
+                updateStatus("Go SQLite Ready", "status-ready");
+                enableAllButtons();
+
+            } catch (err) {
+                console.error("DB Initialization Error:", err);
+                logToResults(`DB Initialization Error: ${err.message || err}`, 'error');
+                updateStatus("Error initializing DB", "status-error");
+                enableAllButtons(); 
+            }
+        }
+
+        function disableAllButtons() {
+            document.querySelectorAll('button').forEach(btn => btn.disabled = true);
+        }
+        function enableAllButtons() {
+             document.querySelectorAll('button').forEach(btn => btn.disabled = false);
+        }
+
+        // --- Event Handlers ---
+        initDbBtn.addEventListener('click', async () => {
+            if (!confirm("This will re-initialize the database, loading from IndexedDB if available, or creating a new one. Continue?")) return;
+            await initializeDatabase(); 
+        });
+
+        importBtn.addEventListener('click', () => importFileInput.click());
+        importFileInput.addEventListener('change', async (event) => {
+            if (!goWasmReady) { logToResults("WASM not ready.", "error"); return; }
+            const file = event.target.files[0];
+            if (!file) return;
+
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const dbBytes = new Uint8Array(arrayBuffer);
+                const dbBytesHexString = bytesToHexString(dbBytes);
+                
+                logToResults(`Importing '${file.name}' (${dbBytes.length} bytes)...`, 'info');
+                const resultStr = goImportDB(dbBytesHexString).toString();
+                const result = JSON.parse(resultStr);
+
+                if (result && result.error) {
+                    logToResults(`Import Error: ${result.error}`, 'error', result);
+                } else if (result && result.success) {
+                    logToResults(`Database '${file.name}' imported successfully.`, 'success', result);
+                     if (result.data && result.data.dbKeyName) {
+                         currentDbKeyName = result.data.dbKeyName;
+                         currentDbKeyNameDisplay.textContent = currentDbKeyName;
+                    }
+                    await saveDbToIndexedDB(currentDbKeyName, dbBytes); // Save the raw imported bytes
+                } else {
+                    logToResults("Import failed with unexpected result.", "error", result);
+                }
+            } catch (e) {
+                logToResults(`File import processing error: ${e.message}`, 'error');
+            } finally {
+                importFileInput.value = ''; 
+            }
+        });
+
+        exportBtn.addEventListener('click', async () => {
+            if (!goWasmReady) { logToResults("WASM not ready.", "error"); return; }
+            try {
+                const resultStr = goExportDB().toString();
+                const result = JSON.parse(resultStr);
+
+                if (result && result.error) {
+                    logToResults(`Export Error: ${result.error}`, 'error', result);
+                } else if (result && result.success && result.data && result.data.dbBytesHex) {
+                    const dbBytesToExport = hexStringToBytes(result.data.dbBytesHex);
+                    const blob = new Blob([dbBytesToExport], { type: 'application/vnd.sqlite3' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = result.data.dbKeyName || 'database.db';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    logToResults(`Database '${a.download}' exported.`, 'success');
+                } else {
+                     logToResults("Export failed: No data returned or unexpected format.", 'error', result);
+                }
+            } catch (e) {
+                logToResults(`Export exception: ${e.message}`, 'error');
+            }
+        });
+        
+        async function handleDbOperation(goFunction, payload, operationName) {
+            if (!goWasmReady) { logToResults("WASM not ready.", "error"); return null; }
+            try {
+                logToResults(`Executing ${operationName}...`, 'info', payload);
+                const resultStr = goFunction(JSON.stringify(payload)).toString(); 
+                const result = JSON.parse(resultStr);
+
+                if (result && result.error) {
+                    let originalPayloadData = payload;
+                    if(result.originalPayloadString) {
+                        try { originalPayloadData = JSON.parse(result.originalPayloadString); } catch(e){}
+                    }
+                    logToResults(`${operationName} Error: ${result.error}`, 'error', originalPayloadData);
+                    return null;
+                } else if (result && result.success){
+                    logToResults(`${operationName} Successful.`, 'success', result.data);
+                    
+                    const exportResultStr = goExportDB().toString(); // Export current DB state
+                    const exportResult = JSON.parse(exportResultStr);
+
+                    if (exportResult && exportResult.success && exportResult.data && exportResult.data.dbBytesHex) {
+                        const dbBytesToPersist = hexStringToBytes(exportResult.data.dbBytesHex);
+                        await saveDbToIndexedDB(exportResult.data.dbKeyName || currentDbKeyName, dbBytesToPersist);
+                    } else if (exportResult && exportResult.error) {
+                        logToResults(`Error exporting DB for persistence after ${operationName}: ${exportResult.error}`, 'error');
+                    } else {
+                        logToResults(`DB export for persistence after ${operationName} was empty or failed.`, 'info', exportResult);
+                    }
+                    return result.data;
+                } else {
+                    logToResults(`${operationName} failed with unexpected result.`, 'error', result);
+                    return null;
+                }
+            } catch (e) {
+                logToResults(`Exception during ${operationName}: ${e.message}`, 'error', payload);
+                return null;
+            }
+        }
+
+        createEntityBtn.addEventListener('click', () => {
+            const payload = {
+                name: entityNameInput.value.trim(),
+                type: entityTypeInput.value.trim(),
+                observations: entityObservationsInput.value.trim() ? entityObservationsInput.value.trim().split('\n') : []
+            };
+            if (!payload.name || !payload.type) {
+                logToResults("Entity name and type are required.", "error"); return;
+            }
+            handleDbOperation(goCreateEntity, payload, "Create Entity");
+        });
+
+        createRelationBtn.addEventListener('click', () => {
+            const payload = {
+                from_entity: fromEntityInput.value.trim(),
+                to_entity: toEntityInput.value.trim(),
+                relation_type: relationTypeInput.value.trim()
+            };
+            if (!payload.from_entity || !payload.to_entity || !payload.relation_type) {
+                logToResults("From entity, To entity, and Relation type are required.", "error"); return;
+            }
+            handleDbOperation(goCreateRelation, payload, "Create Relation");
+        });
+
+        addObservationBtn.addEventListener('click', () => {
+            const payload = {
+                entity_name: obsEntityNameInput.value.trim(),
+                content: obsContentInput.value.trim()
+            };
+            if (!payload.entity_name || !payload.content) {
+                logToResults("Entity name and observation content are required.", "error"); return;
+            }
+            handleDbOperation(goAddObservation, payload, "Add Observation");
+        });
+
+        getGraphDataBtn.addEventListener('click', () => {
+            if (!goWasmReady) { logToResults("WASM not ready.", "error"); return; }
+            try {
+                logToResults("Fetching graph data...", "info");
+                const resultStr = goGetGraphData().toString();
+                const result = JSON.parse(resultStr);
+
+                if (result && result.error) {
+                    logToResults(`Get Graph Data Error: ${result.error}`, 'error', result);
+                } else if (result && result.success) {
+                    logToResults("Graph Data Retrieved:", 'success', result.data ? result.data.graphData : result.data);
+                } else {
+                     logToResults("Received unexpected result from getGraphData", 'error', result);   
+                }
+            } catch (e) {
+                logToResults(`Exception during Get Graph Data: ${e.message}`, 'error', e);
+            }
+        });
+
+        searchBtn.addEventListener('click', () => {
+            if (!goWasmReady) { logToResults("WASM not ready.", "error"); return; }
+            const query = searchInput.value.trim();
+            if (!query) { logToResults("Search query cannot be empty.", "error"); return; }
+            try {
+                logToResults(`Searching for '${query}'...`, 'info');
+                const resultStr = goSearchNodes(JSON.stringify({ query })).toString();
+                const result = JSON.parse(resultStr);
+
+                 if (result && result.error) {
+                    logToResults(`Search Error: ${result.error}`, 'error', result);
+                } else if (result && result.success) {
+                    logToResults(`Search results for '${query}':`, 'success', result.data ? result.data.graphData : result.data);
+                } else {
+                    logToResults("Search failed with unexpected result.", 'error', result);
+                }
+            } catch (e) {
+                logToResults(`Exception during Search: ${e.message}`, 'error', e);
+            }
+        });
+        
+        openNodesBtn.addEventListener('click', () => {
+            if (!goWasmReady) { logToResults("WASM not ready.", "error"); return; }
+            const namesStr = openNodesInput.value.trim();
+            if (!namesStr) { logToResults("Node names cannot be empty.", "error"); return; }
+            const names = namesStr.split(',').map(name => name.trim()).filter(name => name);
+             if (names.length === 0) { logToResults("No valid node names provided.", "error"); return; }
+            try {
+                logToResults(`Opening nodes: ${names.join(', ')}...`, 'info');
+                const resultStr = goOpenNodes(JSON.stringify({ names })).toString();
+                const result = JSON.parse(resultStr);
+
+                 if (result && result.error) {
+                    logToResults(`Open Nodes Error: ${result.error}`, 'error', result);
+                } else if (result && result.success) {
+                    logToResults(`Data for nodes '${names.join(', ')}':`, 'success', result.data ? result.data.graphData : result.data);
+                } else {
+                     logToResults("Open Nodes failed with unexpected result.", 'error', result);
+                }
+            } catch (e) {
+                logToResults(`Exception during Open Nodes: ${e.message}`, 'error', e);
+            }
+        });
+
+        deleteEntitiesBtn.addEventListener('click', () => {
+            const namesStr = deleteEntitiesInput.value.trim();
+            if (!namesStr) { logToResults("Entity names to delete cannot be empty.", "error"); return; }
+            const entityNames = namesStr.split(',').map(name => name.trim()).filter(name => name);
+            if (entityNames.length === 0) { logToResults("No valid entity names provided for deletion.", "error"); return; }
+            if (!confirm(`Are you sure you want to delete these entities and their related data: ${entityNames.join(', ')}?`)) return;
+            
+            const payload = { entityNames };
+            handleDbOperation(goDeleteEntities, payload, "Delete Entities");
+        });
+        
+        syncToServerBtn.addEventListener('click', async () => {
+            if (!goWasmReady) { logToResults("WASM not ready for server sync.", "error"); return; }
+            try {
+                const exportResultStr = goPrepareSyncToServer().toString();
+                const exportResult = JSON.parse(exportResultStr);
+
+                if (exportResult && exportResult.error) {
+                    logToResults(`Sync to Server (Export) Error: ${exportResult.error}`, 'error');
+                    return;
+                }
+                if (exportResult && exportResult.success && exportResult.data && exportResult.data.dbBytesHex) {
+                    const dbBytesToSync = hexStringToBytes(exportResult.data.dbBytesHex);
+                    logToResults(`DB data prepared for server (${dbBytesToSync.length} bytes). Sending to server...`, "info");
+                    
+                    const response = await fetch('/api/import_db', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/octet-stream' },
+                        body: dbBytesToSync
+                    });
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`Server error: ${response.status} ${errorText}`);
+                    }
+                    logToResults("DB successfully synced to server.", "success");
+                } else {
+                    logToResults("Sync to Server: No data to export or unexpected result.", "error", exportResult);
+                }
+            } catch (e) {
+                 logToResults(`Sync to Server exception: ${e.message}`, 'error');
+            }
+        });
+
+        syncFromServerBtn.addEventListener('click', async () => {
+            if (!goWasmReady) { logToResults("WASM not ready for server sync.", "error"); return; }
+            if (!confirm("This will replace your local DB with data from the server. Continue?")) return;
+            try {
+                logToResults("Fetching DB from server /api/export_db...", "info");
+                const response = await fetch('/api/export_db');
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Server error: ${response.status} ${errorText}`);
+                }
+                const arrayBuffer = await response.arrayBuffer();
+                const dbBytesFromServer = new Uint8Array(arrayBuffer);
+                
+                if (dbBytesFromServer.length === 0) {
+                    logToResults("Received empty database from server.", "error");
+                    return;
+                }
+
+                const dbBytesHexFromServer = bytesToHexString(dbBytesFromServer);
+                
+                logToResults(`Received ${dbBytesFromServer.length} bytes from server. Importing...`, "info");
+                const importResultStr = goCompleteSyncFromServer(dbBytesHexFromServer).toString();
+                const importResult = JSON.parse(importResultStr);
+
+                if (importResult && importResult.error) {
+                    logToResults(`Sync from Server (Import) Error: ${importResult.error}`, 'error', importResult);
+                } else if (importResult && importResult.success) {
+                    logToResults("DB successfully synced from server.", 'success', importResult);
+                     if (importResult.data && importResult.data.dbKeyName) {
+                        currentDbKeyName = importResult.data.dbKeyName;
+                        currentDbKeyNameDisplay.textContent = currentDbKeyName;
+                    }
+                    // Save the newly fetched and imported DB to IndexedDB
+                    await saveDbToIndexedDB(currentDbKeyName, dbBytesFromServer);
+                } else {
+                    logToResults("Sync from server (import) failed with unexpected result.", "error", importResult);
+                }
+            } catch (e) {
+                logToResults(`Sync from Server exception: ${e.message || e}`, 'error');
+            }
+        });
+
+        // Event listener for syncFromBackendDataBtn removed as button is removed.
+
+        // Initial Load
+        disableAllButtons();
+        document.addEventListener('DOMContentLoaded', initWasm);
+
+    </script>
+</body>
+</html>
