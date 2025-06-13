@@ -1,8 +1,8 @@
 # GnolledgeGraph
 
-![Mascot][gnolledgegraph.png]
+![Mascot](gnolledgegraph.png)
 
-A complete implementation of the MCP (Model Context Protocol) Memory Server specification with a web-based SQLite WASM frontend. This server provides a full knowledge graph system supporting entities, relations, and observations with both REST API and MCP protocol access.
+An implementation of the MCP (Model Context Protocol) Memory Server specification with a web-based SQLite WASM frontend. This server provides a knowledge graph system supporting entities, relations, and observations with both REST API and MCP protocol access.
 
 ## Features
 
