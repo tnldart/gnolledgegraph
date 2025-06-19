@@ -8,12 +8,13 @@ An implementation of the MCP (Model Context Protocol) Memory Server specificatio
 
 - **Complete MCP Memory Server**: Implements all 9 endpoints from the official MCP memory server specification
 - **Dual API Format Support**: Provides both an original Go API (at `/api/`) and a Python FastAPI compatible API (at root paths like `/read_graph`).
+  _**Note:** only the Python-compatible endpoints are included in the `/openapi.json` documentation; the legacy Go API endpoints remain implemented for compatibility but are undocumented._
 - **WASM Frontend**: Interactive web interface with SQLite WASM for local data management (currently interacts with the Go API).
 - **Client-Server Sync**: Offline-first architecture with bidirectional database synchronization.
 - **MCP STDIO Support**: Full stdin/stdout MCP client integration.
 - **Persistent Storage**: SQLite database with IndexedDB persistence in the frontend.
 - **Modern Web UI**: Tabbed interface for creating, searching, and deleting knowledge graph data.
-- **OpenAPI Documentation**: Comprehensive API specification at `/openapi.json`, covering both Go and Python API formats.
+- **OpenAPI Documentation**: API specification at `/openapi.json` now covers only the Python-compatible endpoints and schemas.
 
 ## MCP Memory Server Endpoints
 
@@ -114,9 +115,10 @@ This script demonstrates:
 
 The server exposes two sets of REST API endpoints:
 
-### Original Go API Endpoints (at `/api/`)
+### Legacy Go API Endpoints (at `/api/`)
 
-These endpoints follow Go conventions (snake_case, separate observation handling):
+These endpoints follow Go conventions (snake_case, separate observation handling).
+_Only available for backward compatibility and not included in the `/openapi.json` specification:_
 
 - `GET /api/read_graph` - Read complete graph (Go format)
 - `POST /api/create_entities` - Create entities (Go format)
@@ -132,7 +134,7 @@ These endpoints follow Go conventions (snake_case, separate observation handling
 
 ### Python FastAPI Compatibility API Endpoints (at root `/`)
 
-These endpoints are designed for Python FastAPI clients (camelCase, embedded observations):
+These endpoints are designed for Python FastAPI clients (camelCase, embedded observations), and are the only endpoints included in the `/openapi.json` API documentation:
 
 - `GET /read_graph` - Read complete graph (Python format)
 - `POST /create_entities` - Create entities with embedded observations (Python format)
@@ -331,11 +333,12 @@ curl -X POST -H "Content-Type: application/octet-stream" \
   --data-binary @backup.db http://localhost:8080/api/import_db  # Upload database
 ```
 
-This implementation provides a complete, production-ready MCP memory server that can be integrated with any MCP-compatible client. It also offers standalone REST API access through two distinct formats (Go-native and Python FastAPI compatible) and a web interface.
+This implementation provides a complete, production-ready MCP memory server that can be integrated with any MCP-compatible client. It also offers standalone REST API access through two distinct formats (Go-native and Python FastAPI compatible), though only the Python API is included in OpenAPI documentation, and a web interface.
 
 ## TODO
 
+- [ ] **Change Binary Name to Gnolledgegraph** and update any references
 - [ ] **Streamable HTTP MCP Transport Support**: Implement HTTP-based MCP transport protocol once Claude Desktop/Code adds support for it. This would enable MCP communication over HTTP instead of stdin/stdout, allowing for better integration with web-based clients and potentially improved performance for larger knowledge graphs.
 - [ ] **Incremental Sync**: Add support for incremental/delta synchronization to only transfer changed data rather than full database replacement, improving performance for large knowledge graphs.
 - [ ] **Conflict Resolution**: Implement merge strategies for handling conflicting changes when syncing between multiple clients that have made simultaneous modifications.
-- [ ] **API Consolidation**: Refactor to a single, Python-compatible API, removing the original Go-specific API endpoints (under `/api/`) and associated data structures. This will simplify the codebase and focus on a unified interface for all HTTP clients. The web frontend would also need to be updated to use this consolidated API.
+- [ ] **API Documentation Consolidation**: The OpenAPI doc is now Python-compatible only, but Go API endpoints at `/api/` are still implemented for legacy support. Update the web frontend to use the Python API and consider deprecating Go-format handlers in future.
