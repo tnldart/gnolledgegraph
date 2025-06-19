@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"memory-parttwo/internal/db"
+	"gnolledgegraph/internal/db"
 )
 
 // StaticFS, if non-nil, is used to serve embedded static frontend assets.
@@ -51,10 +51,16 @@ func NewPythonCompatHandler(database *sql.DB) http.Handler {
 			return
 		}
 
-		pythonGraph := TransformToPython(entities, relations, observations)
-
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(pythonGraph)
+		json.NewEncoder(w).Encode(struct {
+			Entities     []db.Entity      `json:"entities"`
+			Relations    []db.Relation    `json:"relations"`
+			Observations []db.Observation `json:"observations"`
+		}{
+			Entities:     entities,
+			Relations:    relations,
+			Observations: observations,
+		})
 	})
 
 	// 2. POST /create_entities - Create entities with embedded observations
@@ -66,7 +72,7 @@ func NewPythonCompatHandler(database *sql.DB) http.Handler {
 		}
 
 		var req struct {
-			Entities []PythonEntity `json:"entities"`
+			Entities []db.Entity `json:"entities"`
 		}
 
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -74,19 +80,19 @@ func NewPythonCompatHandler(database *sql.DB) http.Handler {
 			return
 		}
 
-		var createdEntities []PythonEntity
+		var createdEntities []db.Entity
 		var conflictingEntityNames []string
 
 		// First, check for existing entities to handle conflicts gracefully
-		for _, pythonEntity := range req.Entities {
+		for _, entity := range req.Entities {
 			var exists bool
-			err := database.QueryRow(`SELECT EXISTS(SELECT 1 FROM entities WHERE name = ?)`, pythonEntity.Name).Scan(&exists)
+			err := database.QueryRow(`SELECT EXISTS(SELECT 1 FROM entities WHERE name = ?)`, entity.Name).Scan(&exists)
 			if err != nil {
 				http.Error(w, "Database error checking entity existence: "+err.Error(), http.StatusInternalServerError)
 				return
 			}
 			if exists {
-				conflictingEntityNames = append(conflictingEntityNames, pythonEntity.Name)
+				conflictingEntityNames = append(conflictingEntityNames, entity.Name)
 			}
 		}
 
@@ -101,23 +107,23 @@ func NewPythonCompatHandler(database *sql.DB) http.Handler {
 		}
 
 		// If no conflicts, proceed to create entities and their observations
-		for _, pythonEntity := range req.Entities {
+		for _, entity := range req.Entities {
 			// Create entity (db.CreateEntity uses INSERT OR IGNORE, so no error on duplicate here,
 			// but we've already checked above for explicit conflict reporting)
-			if err := db.CreateEntity(database, pythonEntity.Name, pythonEntity.EntityType); err != nil {
+			if err := db.CreateEntity(database, entity.Name, entity.Type); err != nil {
 				// This error would be for issues other than duplicates, e.g., DB connection
-				http.Error(w, "Failed to create entity '"+pythonEntity.Name+"': "+err.Error(), http.StatusInternalServerError)
+				http.Error(w, "Failed to create entity '"+entity.Name+"': "+err.Error(), http.StatusInternalServerError)
 				return
 			}
 
 			// Create observations
-			for _, obsContent := range pythonEntity.Observations {
-				if _, err := db.CreateObservation(database, pythonEntity.Name, obsContent); err != nil {
-					http.Error(w, "Failed to create observation for '"+pythonEntity.Name+"': "+err.Error(), http.StatusInternalServerError)
+			for _, obsContent := range entity.Observations {
+				if _, err := db.CreateObservation(database, entity.Name, obsContent); err != nil {
+					http.Error(w, "Failed to create observation for '"+entity.Name+"': "+err.Error(), http.StatusInternalServerError)
 					return
 				}
 			}
-			createdEntities = append(createdEntities, pythonEntity)
+			createdEntities = append(createdEntities, entity)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -134,7 +140,7 @@ func NewPythonCompatHandler(database *sql.DB) http.Handler {
 		}
 
 		var req struct {
-			Relations []PythonRelation `json:"relations"`
+			Relations []db.Relation `json:"relations"`
 		}
 
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -142,38 +148,38 @@ func NewPythonCompatHandler(database *sql.DB) http.Handler {
 			return
 		}
 
-		var createdRelations []PythonRelation
+		var createdRelations []db.Relation
 
-		for _, pythonRelation := range req.Relations {
+		for _, relation := range req.Relations {
 			// Validate that referenced entities exist
 			var fromExists, toExists bool
-			err := database.QueryRow(`SELECT EXISTS(SELECT 1 FROM entities WHERE name = ?)`, pythonRelation.From).Scan(&fromExists)
+			err := database.QueryRow(`SELECT EXISTS(SELECT 1 FROM entities WHERE name = ?)`, relation.From).Scan(&fromExists)
 			if err != nil {
 				http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
 				return
 			}
-			err = database.QueryRow(`SELECT EXISTS(SELECT 1 FROM entities WHERE name = ?)`, pythonRelation.To).Scan(&toExists)
+			err = database.QueryRow(`SELECT EXISTS(SELECT 1 FROM entities WHERE name = ?)`, relation.To).Scan(&toExists)
 			if err != nil {
 				http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
 				return
 			}
 
 			if !fromExists {
-				http.Error(w, "Entity '"+pythonRelation.From+"' does not exist", http.StatusBadRequest)
+				http.Error(w, "Entity '"+relation.From+"' does not exist", http.StatusBadRequest)
 				return
 			}
 			if !toExists {
-				http.Error(w, "Entity '"+pythonRelation.To+"' does not exist", http.StatusBadRequest)
+				http.Error(w, "Entity '"+relation.To+"' does not exist", http.StatusBadRequest)
 				return
 			}
 
 			// Create relation
-			if _, err := db.CreateRelation(database, pythonRelation.From, pythonRelation.To, pythonRelation.RelationType); err != nil {
+			if _, err := db.CreateRelation(database, relation.From, relation.To, relation.Type); err != nil {
 				http.Error(w, "Failed to create relation: "+err.Error(), http.StatusInternalServerError)
 				return
 			}
 
-			createdRelations = append(createdRelations, pythonRelation)
+			createdRelations = append(createdRelations, relation)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -278,47 +284,14 @@ func NewPythonCompatHandler(database *sql.DB) http.Handler {
 			http.Error(w, "Failed to search nodes: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-
-		// Get observations for found entities
-		var observations []db.Observation
-		if len(entities) > 0 {
-			entityNames := make([]string, len(entities))
-			for i, entity := range entities {
-				entityNames[i] = entity.Name
-			}
-
-			// Query observations for these entities
-			placeholders := ""
-			args := make([]interface{}, len(entityNames))
-			for i, name := range entityNames {
-				if i > 0 {
-					placeholders += ","
-				}
-				placeholders += "?"
-				args[i] = name
-			}
-
-			rows, err := database.Query(`SELECT id, entity_name, content FROM observations WHERE entity_name IN (`+placeholders+`)`, args...)
-			if err != nil {
-				http.Error(w, "Failed to query observations: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
-			defer rows.Close()
-
-			for rows.Next() {
-				var obs db.Observation
-				if err := rows.Scan(&obs.ID, &obs.EntityName, &obs.Content); err != nil {
-					http.Error(w, "Failed to scan observation: "+err.Error(), http.StatusInternalServerError)
-					return
-				}
-				observations = append(observations, obs)
-			}
-		}
-
-		pythonGraph := TransformToPython(entities, relations, observations)
-
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(pythonGraph)
+		json.NewEncoder(w).Encode(struct {
+			Entities  []db.Entity   `json:"entities"`
+			Relations []db.Relation `json:"relations"`
+		}{
+			Entities:  entities,
+			Relations: relations,
+		})
 	})
 
 	// 6. POST /open_nodes - Open specific nodes
@@ -344,46 +317,14 @@ func NewPythonCompatHandler(database *sql.DB) http.Handler {
 			return
 		}
 
-		// Get observations for opened entities
-		var observations []db.Observation
-		if len(entities) > 0 {
-			entityNames := make([]string, len(entities))
-			for i, entity := range entities {
-				entityNames[i] = entity.Name
-			}
-
-			// Query observations for these entities
-			placeholders := ""
-			args := make([]interface{}, len(entityNames))
-			for i, name := range entityNames {
-				if i > 0 {
-					placeholders += ","
-				}
-				placeholders += "?"
-				args[i] = name
-			}
-
-			rows, err := database.Query(`SELECT id, entity_name, content FROM observations WHERE entity_name IN (`+placeholders+`)`, args...)
-			if err != nil {
-				http.Error(w, "Failed to query observations: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
-			defer rows.Close()
-
-			for rows.Next() {
-				var obs db.Observation
-				if err := rows.Scan(&obs.ID, &obs.EntityName, &obs.Content); err != nil {
-					http.Error(w, "Failed to scan observation: "+err.Error(), http.StatusInternalServerError)
-					return
-				}
-				observations = append(observations, obs)
-			}
-		}
-
-		pythonGraph := TransformToPython(entities, relations, observations)
-
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(pythonGraph)
+		json.NewEncoder(w).Encode(struct {
+			Entities  []db.Entity   `json:"entities"`
+			Relations []db.Relation `json:"relations"`
+		}{
+			Entities:  entities,
+			Relations: relations,
+		})
 	})
 
 	// 7. POST /delete_entities - Delete entities with Python format
@@ -455,16 +396,13 @@ func NewPythonCompatHandler(database *sql.DB) http.Handler {
 		}
 
 		var req struct {
-			Relations []PythonRelation `json:"relations"`
+			Relations []db.Relation `json:"relations"`
 		}
 
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-
-		// Transform to Go format for database operations
-		goRelations := TransformRelationsFromPython(req.Relations)
 
 		// Convert to the format expected by db.DeleteRelations
 		var dbRelations []struct {
@@ -473,7 +411,7 @@ func NewPythonCompatHandler(database *sql.DB) http.Handler {
 			Type string `json:"relationType"`
 		}
 
-		for _, rel := range goRelations {
+		for _, rel := range req.Relations {
 			dbRelations = append(dbRelations, struct {
 				From string `json:"from"`
 				To   string `json:"to"`

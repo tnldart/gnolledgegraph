@@ -14,9 +14,9 @@ import (
 	"embed"
 	"io/fs"
 
-	"memory-parttwo/internal/api"
-	"memory-parttwo/internal/db"
-	"memory-parttwo/internal/mcp"
+	"gnolledgegraph/internal/api"
+	"gnolledgegraph/internal/db"
+	"gnolledgegraph/internal/mcp"
 )
 
 // The go:generate command will be executed by `go generate ./...`

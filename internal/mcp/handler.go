@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"memory-parttwo/internal/db"
+	"gnolledgegraph/internal/db"
 )
 
 // JSON-RPC 2.0 message types

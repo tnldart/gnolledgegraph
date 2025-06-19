@@ -9,7 +9,7 @@ import (
 	"os"
 	"testing"
 
-	"memory-parttwo/internal/db"
+	"gnolledgegraph/internal/db"
 )
 
 func setupTestAPI(t *testing.T) (*sql.DB, http.Handler) {
@@ -18,24 +18,24 @@ func setupTestAPI(t *testing.T) (*sql.DB, http.Handler) {
 		t.Fatal(err)
 	}
 	tmpfile.Close()
-	
+
 	database, err := db.Init(tmpfile.Name())
 	if err != nil {
 		t.Fatal(err)
 	}
-	
+
 	t.Cleanup(func() {
 		database.Close()
 		os.Remove(tmpfile.Name())
 	})
-	
+
 	handler := NewHandler(database, tmpfile.Name())
 	return database, handler
 }
 
 func TestReadGraphAPI(t *testing.T) {
 	database, handler := setupTestAPI(t)
-	
+
 	// Add some test data
 	db.CreateEntity(database, "Alice", "person")
 	db.CreateEntity(database, "Company", "organization")
@@ -44,27 +44,27 @@ func TestReadGraphAPI(t *testing.T) {
 
 	req := httptest.NewRequest("GET", "/api/read_graph", nil)
 	w := httptest.NewRecorder()
-	
+
 	handler.ServeHTTP(w, req)
-	
+
 	if w.Code != http.StatusOK {
 		t.Errorf("Expected status 200, got %d", w.Code)
 	}
-	
+
 	if w.Header().Get("Content-Type") != "application/json" {
 		t.Error("Expected Content-Type application/json")
 	}
-	
+
 	var response struct {
-		Entities     []db.Entity     `json:"entities"`
-		Relations    []db.Relation   `json:"relations"`
+		Entities     []db.Entity      `json:"entities"`
+		Relations    []db.Relation    `json:"relations"`
 		Observations []db.Observation `json:"observations"`
 	}
-	
+
 	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
 		t.Fatalf("Failed to decode response: %v", err)
 	}
-	
+
 	if len(response.Entities) != 2 {
 		t.Errorf("Expected 2 entities, got %d", len(response.Entities))
 	}
@@ -74,16 +74,29 @@ func TestReadGraphAPI(t *testing.T) {
 	if len(response.Observations) != 1 {
 		t.Errorf("Expected 1 observation, got %d", len(response.Observations))
 	}
+	var alice db.Entity
+	for _, e := range response.Entities {
+		if e.Name == "Alice" {
+			alice = e
+			break
+		}
+	}
+	if alice.Name == "" {
+		t.Fatal("Alice entity not found")
+	}
+	if len(alice.Observations) != 1 {
+		t.Errorf("Expected 1 observation for Alice, got %d", len(alice.Observations))
+	}
 }
 
 func TestReadGraphAPIWrongMethod(t *testing.T) {
 	_, handler := setupTestAPI(t)
-	
+
 	req := httptest.NewRequest("POST", "/api/read_graph", nil)
 	w := httptest.NewRecorder()
-	
+
 	handler.ServeHTTP(w, req)
-	
+
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("Expected status 405, got %d", w.Code)
 	}
@@ -91,30 +104,30 @@ func TestReadGraphAPIWrongMethod(t *testing.T) {
 
 func TestCreateEntitiesAPI(t *testing.T) {
 	_, handler := setupTestAPI(t)
-	
+
 	reqBody := map[string]interface{}{
 		"entities": []map[string]string{
 			{"name": "Alice", "entity_type": "person"},
 			{"name": "Bob", "entity_type": "person"},
 		},
 	}
-	
+
 	jsonData, _ := json.Marshal(reqBody)
 	req := httptest.NewRequest("POST", "/api/create_entities", bytes.NewBuffer(jsonData))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	
+
 	handler.ServeHTTP(w, req)
-	
+
 	if w.Code != http.StatusCreated {
 		t.Errorf("Expected status 201, got %d", w.Code)
 	}
-	
+
 	var response map[string]string
 	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
 		t.Fatalf("Failed to decode response: %v", err)
 	}
-	
+
 	if response["status"] != "success" {
 		t.Errorf("Expected success status, got %s", response["status"])
 	}
@@ -122,13 +135,13 @@ func TestCreateEntitiesAPI(t *testing.T) {
 
 func TestCreateEntitiesAPIInvalidJSON(t *testing.T) {
 	_, handler := setupTestAPI(t)
-	
+
 	req := httptest.NewRequest("POST", "/api/create_entities", bytes.NewBufferString("invalid json"))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	
+
 	handler.ServeHTTP(w, req)
-	
+
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("Expected status 400, got %d", w.Code)
 	}
@@ -136,12 +149,12 @@ func TestCreateEntitiesAPIInvalidJSON(t *testing.T) {
 
 func TestCreateEntitiesAPIWrongMethod(t *testing.T) {
 	_, handler := setupTestAPI(t)
-	
+
 	req := httptest.NewRequest("GET", "/api/create_entities", nil)
 	w := httptest.NewRecorder()
-	
+
 	handler.ServeHTTP(w, req)
-	
+
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("Expected status 405, got %d", w.Code)
 	}
@@ -149,37 +162,37 @@ func TestCreateEntitiesAPIWrongMethod(t *testing.T) {
 
 func TestCreateRelationsAPI(t *testing.T) {
 	database, handler := setupTestAPI(t)
-	
+
 	// Create entities first
 	db.CreateEntity(database, "Alice", "person")
 	db.CreateEntity(database, "Company", "organization")
-	
+
 	reqBody := map[string]interface{}{
 		"relations": []map[string]string{
 			{"from_entity": "Alice", "to_entity": "Company", "relation_type": "works_at"},
 		},
 	}
-	
+
 	jsonData, _ := json.Marshal(reqBody)
 	req := httptest.NewRequest("POST", "/api/create_relations", bytes.NewBuffer(jsonData))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	
+
 	handler.ServeHTTP(w, req)
-	
+
 	if w.Code != http.StatusCreated {
 		t.Errorf("Expected status 201, got %d", w.Code)
 	}
-	
+
 	var response map[string]interface{}
 	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
 		t.Fatalf("Failed to decode response: %v", err)
 	}
-	
+
 	if response["status"] != "success" {
 		t.Errorf("Expected success status, got %s", response["status"])
 	}
-	
+
 	ids, ok := response["ids"].([]interface{})
 	if !ok || len(ids) != 1 {
 		t.Error("Expected ids array with one element")
@@ -188,20 +201,20 @@ func TestCreateRelationsAPI(t *testing.T) {
 
 func TestCreateRelationsAPIInvalidEntity(t *testing.T) {
 	_, handler := setupTestAPI(t)
-	
+
 	reqBody := map[string]interface{}{
 		"relations": []map[string]string{
 			{"from_entity": "NonExistent", "to_entity": "AlsoNonExistent", "relation_type": "knows"},
 		},
 	}
-	
+
 	jsonData, _ := json.Marshal(reqBody)
 	req := httptest.NewRequest("POST", "/api/create_relations", bytes.NewBuffer(jsonData))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	
+
 	handler.ServeHTTP(w, req)
-	
+
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("Expected status 500, got %d", w.Code)
 	}
@@ -209,12 +222,12 @@ func TestCreateRelationsAPIInvalidEntity(t *testing.T) {
 
 func TestCreateRelationsAPIWrongMethod(t *testing.T) {
 	_, handler := setupTestAPI(t)
-	
+
 	req := httptest.NewRequest("GET", "/api/create_relations", nil)
 	w := httptest.NewRecorder()
-	
+
 	handler.ServeHTTP(w, req)
-	
+
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("Expected status 405, got %d", w.Code)
 	}
@@ -222,7 +235,7 @@ func TestCreateRelationsAPIWrongMethod(t *testing.T) {
 
 func TestIntegrationWorkflow(t *testing.T) {
 	_, handler := setupTestAPI(t)
-	
+
 	// 1. Create entities
 	entitiesReq := map[string]interface{}{
 		"entities": []map[string]string{
@@ -230,53 +243,53 @@ func TestIntegrationWorkflow(t *testing.T) {
 			{"name": "TechCorp", "entity_type": "organization"},
 		},
 	}
-	
+
 	jsonData, _ := json.Marshal(entitiesReq)
 	req := httptest.NewRequest("POST", "/api/create_entities", bytes.NewBuffer(jsonData))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
-	
+
 	if w.Code != http.StatusCreated {
 		t.Fatalf("Failed to create entities: status %d", w.Code)
 	}
-	
+
 	// 2. Create relations
 	relationsReq := map[string]interface{}{
 		"relations": []map[string]string{
 			{"from_entity": "Alice", "to_entity": "TechCorp", "relation_type": "works_at"},
 		},
 	}
-	
+
 	jsonData, _ = json.Marshal(relationsReq)
 	req = httptest.NewRequest("POST", "/api/create_relations", bytes.NewBuffer(jsonData))
 	req.Header.Set("Content-Type", "application/json")
 	w = httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
-	
+
 	if w.Code != http.StatusCreated {
 		t.Fatalf("Failed to create relations: status %d", w.Code)
 	}
-	
+
 	// 3. Read the graph
 	req = httptest.NewRequest("GET", "/api/read_graph", nil)
 	w = httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
-	
+
 	if w.Code != http.StatusOK {
 		t.Fatalf("Failed to read graph: status %d", w.Code)
 	}
-	
+
 	var response struct {
-		Entities     []db.Entity     `json:"entities"`
-		Relations    []db.Relation   `json:"relations"`
+		Entities     []db.Entity      `json:"entities"`
+		Relations    []db.Relation    `json:"relations"`
 		Observations []db.Observation `json:"observations"`
 	}
-	
+
 	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
 		t.Fatalf("Failed to decode response: %v", err)
 	}
-	
+
 	// Verify the complete workflow
 	if len(response.Entities) != 2 {
 		t.Errorf("Expected 2 entities, got %d", len(response.Entities))

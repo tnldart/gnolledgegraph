@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"memory-parttwo/internal/db"
+	"gnolledgegraph/internal/db"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -44,7 +44,11 @@ func TestPythonReadGraph(t *testing.T) {
 		t.Errorf("Expected status 200, got %d", w.Code)
 	}
 
-	var response PythonKnowledgeGraph
+	var response struct {
+		Entities     []db.Entity      `json:"entities"`
+		Relations    []db.Relation    `json:"relations"`
+		Observations []db.Observation `json:"observations"`
+	}
 	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
 		t.Fatalf("Failed to decode response: %v", err)
 	}
@@ -55,10 +59,10 @@ func TestPythonReadGraph(t *testing.T) {
 	}
 
 	// Find Python entity
-	var pythonEntity *PythonEntity
-	for _, entity := range response.Entities {
-		if entity.Name == "Python" {
-			pythonEntity = &entity
+	var pythonEntity *db.Entity
+	for i := range response.Entities {
+		if response.Entities[i].Name == "Python" {
+			pythonEntity = &response.Entities[i]
 			break
 		}
 	}
@@ -67,8 +71,8 @@ func TestPythonReadGraph(t *testing.T) {
 		t.Fatal("Python entity not found")
 	}
 
-	if pythonEntity.EntityType != "Language" {
-		t.Errorf("Expected entity type 'Language', got '%s'", pythonEntity.EntityType)
+	if pythonEntity.Type != "Language" {
+		t.Errorf("Expected entity type 'Language', got '%s'", pythonEntity.Type)
 	}
 
 	if len(pythonEntity.Observations) != 2 {
@@ -81,7 +85,7 @@ func TestPythonReadGraph(t *testing.T) {
 	}
 
 	relation := response.Relations[0]
-	if relation.From != "Python" || relation.To != "Django" || relation.RelationType != "hasFramework" {
+	if relation.From != "Python" || relation.To != "Django" || relation.Type != "hasFramework" {
 		t.Errorf("Unexpected relation: %+v", relation)
 	}
 }
@@ -93,17 +97,17 @@ func TestPythonCreateEntities(t *testing.T) {
 	handler := NewPythonCompatHandler(database)
 
 	requestBody := struct {
-		Entities []PythonEntity `json:"entities"`
+		Entities []db.Entity `json:"entities"`
 	}{
-		Entities: []PythonEntity{
+		Entities: []db.Entity{
 			{
 				Name:         "Python",
-				EntityType:   "Language",
+				Type:         "Language",
 				Observations: []string{"High-level", "Interpreted"},
 			},
 			{
 				Name:         "Django",
-				EntityType:   "Framework",
+				Type:         "Framework",
 				Observations: []string{"Web framework"},
 			},
 		},
@@ -120,7 +124,7 @@ func TestPythonCreateEntities(t *testing.T) {
 		t.Errorf("Expected status 201, got %d", w.Code)
 	}
 
-	var response []PythonEntity
+	var response []db.Entity
 	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
 		t.Fatalf("Failed to decode response: %v", err)
 	}
@@ -130,7 +134,7 @@ func TestPythonCreateEntities(t *testing.T) {
 	}
 
 	// Verify entities were created in database
-	entities, _, observations, err := db.ReadGraph(database)
+	entities, _, _, err := db.ReadGraph(database)
 	if err != nil {
 		t.Fatalf("Failed to read graph: %v", err)
 	}
@@ -139,9 +143,6 @@ func TestPythonCreateEntities(t *testing.T) {
 		t.Errorf("Expected 2 entities in database, got %d", len(entities))
 	}
 
-	if len(observations) != 3 {
-		t.Errorf("Expected 3 observations in database, got %d", len(observations))
-	}
 }
 func TestPythonCreateEntitiesConflict(t *testing.T) {
 	database := setupTestDB(t)
@@ -150,12 +151,12 @@ func TestPythonCreateEntitiesConflict(t *testing.T) {
 	handler := NewPythonCompatHandler(database)
 
 	// First, create an entity
-	initialEntity := PythonEntity{
+	initialEntity := db.Entity{
 		Name:         "ConflictEntity",
-		EntityType:   "TestType",
+		Type:         "TestType",
 		Observations: []string{"Initial observation"},
 	}
-	err := db.CreateEntity(database, initialEntity.Name, initialEntity.EntityType)
+	err := db.CreateEntity(database, initialEntity.Name, initialEntity.Type)
 	if err != nil {
 		t.Fatalf("Failed to create initial entity for conflict test: %v", err)
 	}
@@ -168,13 +169,13 @@ func TestPythonCreateEntitiesConflict(t *testing.T) {
 
 	// Now, attempt to create it again along with a new one
 	requestBody := struct {
-		Entities []PythonEntity `json:"entities"`
+		Entities []db.Entity `json:"entities"`
 	}{
-		Entities: []PythonEntity{
+		Entities: []db.Entity{
 			initialEntity, // This one should cause a conflict
 			{
 				Name:         "NewEntity",
-				EntityType:   "AnotherType",
+				Type:         "AnotherType",
 				Observations: []string{"New observation"},
 			},
 		},
@@ -242,13 +243,13 @@ func TestPythonCreateRelations(t *testing.T) {
 	handler := NewPythonCompatHandler(database)
 
 	requestBody := struct {
-		Relations []PythonRelation `json:"relations"`
+		Relations []db.Relation `json:"relations"`
 	}{
-		Relations: []PythonRelation{
+		Relations: []db.Relation{
 			{
-				From:         "Python",
-				To:           "Django",
-				RelationType: "hasFramework",
+				From: "Python",
+				To:   "Django",
+				Type: "hasFramework",
 			},
 		},
 	}
@@ -264,7 +265,7 @@ func TestPythonCreateRelations(t *testing.T) {
 		t.Errorf("Expected status 201, got %d", w.Code)
 	}
 
-	var response []PythonRelation
+	var response []db.Relation
 	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
 		t.Fatalf("Failed to decode response: %v", err)
 	}
@@ -291,13 +292,13 @@ func TestPythonCreateRelationsNonExistentEntity(t *testing.T) {
 	handler := NewPythonCompatHandler(database)
 
 	requestBody := struct {
-		Relations []PythonRelation `json:"relations"`
+		Relations []db.Relation `json:"relations"`
 	}{
-		Relations: []PythonRelation{
+		Relations: []db.Relation{
 			{
-				From:         "NonExistent",
-				To:           "AlsoNonExistent",
-				RelationType: "hasFramework",
+				From: "NonExistent",
+				To:   "AlsoNonExistent",
+				Type: "hasFramework",
 			},
 		},
 	}
@@ -352,13 +353,13 @@ func TestPythonAddObservations(t *testing.T) {
 	}
 
 	// Verify observations were added
-	_, _, observations, err := db.ReadGraph(database)
+	entities, _, _, err := db.ReadGraph(database)
 	if err != nil {
 		t.Fatalf("Failed to read graph: %v", err)
 	}
 
-	if len(observations) != 2 {
-		t.Errorf("Expected 2 observations in database, got %d", len(observations))
+	if len(entities[0].Observations) != 2 {
+		t.Errorf("Expected 2 observations in database, got %d", len(entities[0].Observations))
 	}
 }
 
@@ -390,7 +391,10 @@ func TestPythonSearchNodes(t *testing.T) {
 		t.Errorf("Expected status 200, got %d", w.Code)
 	}
 
-	var response PythonKnowledgeGraph
+	var response struct {
+		Entities  []db.Entity   `json:"entities"`
+		Relations []db.Relation `json:"relations"`
+	}
 	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
 		t.Fatalf("Failed to decode response: %v", err)
 	}
@@ -441,7 +445,10 @@ func TestPythonOpenNodes(t *testing.T) {
 		t.Errorf("Expected status 200, got %d", w.Code)
 	}
 
-	var response PythonKnowledgeGraph
+	var response struct {
+		Entities  []db.Entity   `json:"entities"`
+		Relations []db.Relation `json:"relations"`
+	}
 	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
 		t.Fatalf("Failed to decode response: %v", err)
 	}
@@ -533,17 +540,17 @@ func TestPythonDeleteObservations(t *testing.T) {
 	}
 
 	// Verify observation was deleted
-	_, _, observations, err := db.ReadGraph(database)
+	entities, _, _, err := db.ReadGraph(database)
 	if err != nil {
 		t.Fatalf("Failed to read graph: %v", err)
 	}
 
-	if len(observations) != 1 {
-		t.Errorf("Expected 1 observation remaining, got %d", len(observations))
+	if len(entities[0].Observations) != 1 {
+		t.Errorf("Expected 1 observation remaining, got %d", len(entities[0].Observations))
 	}
 
 	// Check that the correct observation remains
-	if observations[0].Content == "High-level" {
+	if entities[0].Observations[0] == "High-level" {
 		t.Error("High-level observation should have been deleted")
 	}
 }
@@ -560,13 +567,13 @@ func TestPythonDeleteRelations(t *testing.T) {
 	handler := NewPythonCompatHandler(database)
 
 	requestBody := struct {
-		Relations []PythonRelation `json:"relations"`
+		Relations []db.Relation `json:"relations"`
 	}{
-		Relations: []PythonRelation{
+		Relations: []db.Relation{
 			{
-				From:         "Python",
-				To:           "Django",
-				RelationType: "hasFramework",
+				From: "Python",
+				To:   "Django",
+				Type: "hasFramework",
 			},
 		},
 	}

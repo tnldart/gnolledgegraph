@@ -104,7 +104,7 @@ func TestReadGraph(t *testing.T) {
 	CreateEntity(db, "Alice", "person")
 	CreateEntity(db, "Company", "organization")
 	relID, _ := CreateRelation(db, "Alice", "Company", "works_at")
-	obsID, _ := CreateObservation(db, "Alice", "Alice is a software engineer")
+	CreateObservation(db, "Alice", "Alice is a software engineer")
 
 	// Read the graph
 	entities, relations, observations, err := ReadGraph(db)
@@ -112,18 +112,27 @@ func TestReadGraph(t *testing.T) {
 		t.Fatalf("ReadGraph() failed: %v", err)
 	}
 
-	// Verify entities
+	// Verify observations
+	if len(observations) != 1 {
+		t.Errorf("Expected 1 observation, got %d", len(observations))
+	}
+
+	// Verify entities and observations
 	if len(entities) != 2 {
 		t.Errorf("Expected 2 entities, got %d", len(entities))
 	}
-	found := false
+	foundAlice := false
 	for _, e := range entities {
 		if e.Name == "Alice" && e.Type == "person" {
-			found = true
-			break
+			foundAlice = true
+			if len(e.Observations) != 1 {
+				t.Errorf("Expected 1 observation for Alice, got %d", len(e.Observations))
+			} else if e.Observations[0] != "Alice is a software engineer" {
+				t.Error("Observation content mismatch for Alice")
+			}
 		}
 	}
-	if !found {
+	if !foundAlice {
 		t.Error("Alice entity not found")
 	}
 
@@ -136,17 +145,6 @@ func TestReadGraph(t *testing.T) {
 	}
 	if relations[0].From != "Alice" || relations[0].To != "Company" || relations[0].Type != "works_at" {
 		t.Error("Relation data mismatch")
-	}
-
-	// Verify observations
-	if len(observations) != 1 {
-		t.Errorf("Expected 1 observation, got %d", len(observations))
-	}
-	if observations[0].ID != obsID {
-		t.Errorf("Expected observation ID %d, got %d", obsID, observations[0].ID)
-	}
-	if observations[0].EntityName != "Alice" || observations[0].Content != "Alice is a software engineer" {
-		t.Error("Observation data mismatch")
 	}
 }
 

@@ -7,13 +7,13 @@ import (
 	"net/http"
 	"os"
 
-	"memory-parttwo/internal/db"
+	"gnolledgegraph/internal/db"
 )
 
 // now captures the on-disk sqlite file path
 func NewHandler(database *sql.DB, dbPath string) http.Handler {
 	mux := http.NewServeMux()
-	
+
 	// POST /api/import_db  ←  upload new DB blob
 	mux.HandleFunc("/api/import_db", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -32,7 +32,7 @@ func NewHandler(database *sql.DB, dbPath string) http.Handler {
 		// Optionally you could re-open the database here
 		w.WriteHeader(http.StatusNoContent)
 	})
-	
+
 	// GET /api/export_db  ←  download current DB blob
 	mux.HandleFunc("/api/export_db", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -47,17 +47,17 @@ func NewHandler(database *sql.DB, dbPath string) http.Handler {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		
+
 		entities, relations, observations, err := db.ReadGraph(database)
 		if err != nil {
 			http.Error(w, "Failed to read graph: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(struct {
-			Entities     []db.Entity     `json:"entities"`
-			Relations    []db.Relation   `json:"relations"`
+			Entities     []db.Entity      `json:"entities"`
+			Relations    []db.Relation    `json:"relations"`
 			Observations []db.Observation `json:"observations"`
 		}{
 			Entities:     entities,
@@ -65,43 +65,43 @@ func NewHandler(database *sql.DB, dbPath string) http.Handler {
 			Observations: observations,
 		})
 	})
-	
+
 	mux.HandleFunc("/api/create_entities", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		
+
 		var req struct {
 			Entities []struct {
 				Name string `json:"name"`
 				Type string `json:"entity_type"`
 			} `json:"entities"`
 		}
-		
+
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		
+
 		for _, entity := range req.Entities {
 			if err := db.CreateEntity(database, entity.Name, entity.Type); err != nil {
 				http.Error(w, "Failed to create entity: "+err.Error(), http.StatusInternalServerError)
 				return
 			}
 		}
-		
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 	})
-	
+
 	mux.HandleFunc("/api/create_relations", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		
+
 		var req struct {
 			Relations []struct {
 				From string `json:"from_entity"`
@@ -109,12 +109,12 @@ func NewHandler(database *sql.DB, dbPath string) http.Handler {
 				Type string `json:"relation_type"`
 			} `json:"relations"`
 		}
-		
+
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		
+
 		var createdIDs []int64
 		for _, relation := range req.Relations {
 			id, err := db.CreateRelation(database, relation.From, relation.To, relation.Type)
@@ -124,7 +124,7 @@ func NewHandler(database *sql.DB, dbPath string) http.Handler {
 			}
 			createdIDs = append(createdIDs, id)
 		}
-		
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -138,25 +138,25 @@ func NewHandler(database *sql.DB, dbPath string) http.Handler {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		
+
 		var req struct {
 			Observations []struct {
 				EntityName string `json:"entityName"`
 				Contents   string `json:"contents"`
 			} `json:"observations"`
 		}
-		
+
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		
+
 		added, err := db.AddObservations(database, req.Observations)
 		if err != nil {
 			http.Error(w, "Failed to add observations: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -170,22 +170,22 @@ func NewHandler(database *sql.DB, dbPath string) http.Handler {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		
+
 		var req struct {
 			EntityNames []string `json:"entityNames"`
 		}
-		
+
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		
+
 		err := db.DeleteEntities(database, req.EntityNames)
 		if err != nil {
 			http.Error(w, "Failed to delete entities: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"status":  "success",
@@ -198,25 +198,25 @@ func NewHandler(database *sql.DB, dbPath string) http.Handler {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		
+
 		var req struct {
 			Deletions []struct {
 				EntityName   string   `json:"entityName"`
 				Observations []string `json:"observations"`
 			} `json:"deletions"`
 		}
-		
+
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		
+
 		err := db.DeleteObservations(database, req.Deletions)
 		if err != nil {
 			http.Error(w, "Failed to delete observations: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 	})
@@ -226,7 +226,7 @@ func NewHandler(database *sql.DB, dbPath string) http.Handler {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		
+
 		var req struct {
 			Relations []struct {
 				From string `json:"from"`
@@ -234,18 +234,18 @@ func NewHandler(database *sql.DB, dbPath string) http.Handler {
 				Type string `json:"relationType"`
 			} `json:"relations"`
 		}
-		
+
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		
+
 		err := db.DeleteRelations(database, req.Relations)
 		if err != nil {
 			http.Error(w, "Failed to delete relations: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 	})
@@ -255,19 +255,19 @@ func NewHandler(database *sql.DB, dbPath string) http.Handler {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		
+
 		query := r.URL.Query().Get("query")
 		if query == "" {
 			http.Error(w, "Missing query parameter", http.StatusBadRequest)
 			return
 		}
-		
+
 		entities, relations, err := db.SearchNodes(database, query)
 		if err != nil {
 			http.Error(w, "Failed to search nodes: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(struct {
 			Entities  []db.Entity   `json:"entities"`
@@ -283,22 +283,22 @@ func NewHandler(database *sql.DB, dbPath string) http.Handler {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		
+
 		var req struct {
 			Names []string `json:"names"`
 		}
-		
+
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		
+
 		entities, relations, err := db.OpenNodes(database, req.Names)
 		if err != nil {
 			http.Error(w, "Failed to open nodes: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(struct {
 			Entities  []db.Entity   `json:"entities"`
@@ -308,6 +308,6 @@ func NewHandler(database *sql.DB, dbPath string) http.Handler {
 			Relations: relations,
 		})
 	})
-	
+
 	return mux
 }
